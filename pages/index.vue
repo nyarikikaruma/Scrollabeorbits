@@ -1,143 +1,125 @@
 <template>
-    <div class="relative w-full h-screen overflow-hidden bg-black" @wheel="handleScroll" ref="container">
-        <div class="absolute inset-x-0 bottom-0 flex justify-center">
-            <div v-for="(orbit, index) in visibleOrbits" :key="orbit.id"
-                class="absolute border-t border-gray-700 rounded-t-full overflow-visible transition-all duration-300"
-                :style="getOrbitStyle(index)" :ref="el => { if (el) orbitRefs[index] = el }">
+    <div class="relative w-full h-screen bg-black overflow-hidden" @wheel="handleZoom" ref="container">
+        <div class="absolute inset-0 flex items-center justify-center">
+            <div class="relative" :style="{ transform: `scale(${zoomLevel})` }">
 
-                <!-- Title on the outermost orbit -->
-                <div v-if="index === visibleOrbits.length - 1"
-                    class="absolute text-white rounded-full px-3 py-1 text-sm font-bold"
-                    :style="getTitlePosition(index)">
-                    {{ orbit.title }}
-                </div>
+                <!-- Orbits and Avatars -->
+                <template v-for="(orbit, orbitIndex) in visibleOrbits" :key="orbitIndex">
+                    <div class="absolute rounded-full" :style="{
+                        width: `${orbit.radius * 2}px`,
+                        height: `${orbit.radius * 2}px`,
+                        left: `calc(50% - ${orbit.radius}px)`,
+                        top: `calc(50% - ${orbit.radius}px)`,
+                        borderWidth: '1px',
+                        borderStyle: 'solid',
+                        borderColor: 'rgba(255, 255, 255, 0.2)'
+                    }">
+                    </div>
+                    <template v-for="(avatar, avatarIndex) in orbit.avatars" :key="`${orbitIndex}-${avatarIndex}`">
+                        <div v-if="isAvatarVisible(avatar)"
+                            class="absolute transition-transform duration-300 hover:scale-110" :style="{
+                                width: `${avatar.size}px`,
+                                height: `${avatar.size}px`,
+                                left: `calc(50% + ${orbit.radius * Math.cos(avatar.angle)}px - ${avatar.size / 2}px)`,
+                                top: `calc(50% - ${orbit.radius * Math.sin(avatar.angle)}px - ${avatar.size / 2}px)`
+                            }" @mouseenter="showAvatarInfo(avatar, $event, orbitIndex, avatarIndex)"
+                            @mouseleave="hideAvatarInfo(orbitIndex, avatarIndex)">
+                            <!-- Using Lorem Picsum for real profile images -->
+                            <img :src="avatar.imageUrl" :alt="avatar.name"
+                                class="w-full h-full rounded-full object-cover">
+
+                            <!-- Avatar Info Card (positioned below avatar) -->
+                            <div v-if="isAvatarActive(orbitIndex, avatarIndex)"
+                                class="absolute bg-gray-800 text-white p-2 rounded shadow-lg text-center" :style="{
+                                    top: '100%', /* Immediately below the avatar */
+                                    left: '50%',
+                                    transform: 'translateX(-50%)'
+                                }">
+                                <h3 class="font-bold text-sm">{{ avatar.name }}</h3>
+                                <p class="text-xs">Orbit: {{ avatar.orbit }}</p>
+                                <p class="text-xs">Size: {{ avatar.size }}px</p>
+                                <p class="text-xs">Angle: {{ (avatar.angle * 180 / Math.PI).toFixed(2) }}°</p>
+                            </div>
+                        </div>
+                    </template>
+                </template>
             </div>
         </div>
-        <!-- Profile images container -->
-        <div ref="profilesContainer"></div>
+
+        <!-- Zoom Controls -->
+        <div class="absolute bottom-4 right-4 flex space-x-2">
+            <button @click="zoomIn" class="bg-blue-500 text-white px-4 py-2 rounded">+</button>
+            <button @click="zoomOut" class="bg-blue-500 text-white px-4 py-2 rounded">-</button>
+        </div>
     </div>
 </template>
 
-<script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
-
-const container = ref(null)
-const profilesContainer = ref(null)
-const orbitRefs = ref([])
-
-// Current orbit index to track scroll
-const currentOrbitIndex = ref(0)
-
-// Generate random profiles for each orbit
-const generateProfiles = (count) => {
-    return Array.from({ length: count }, (_, i) => ({
-        id: i,
-        image: `https://picsum.photos/seed/${Math.random()}/40/40`
-    }))
-}
-
-// Orbit data with titles and profiles
-const allOrbits = ref([
-    { id: 1, title: 'Today', profiles: generateProfiles(5) },
-    { id: 2, title: 'Yesterday', profiles: generateProfiles(6) },
-    { id: 3, title: 'Last Week', profiles: generateProfiles(7) },
-    { id: 4, title: '2 Weeks Ago', profiles: generateProfiles(8) },
-    { id: 5, title: 'Last Month', profiles: generateProfiles(9) },
-    { id: 6, title: '2 Months Ago', profiles: generateProfiles(10) },
-    { id: 7, title: '3 Months Ago', profiles: generateProfiles(11) },
-    { id: 8, title: '6 Months Ago', profiles: generateProfiles(12) },
-    { id: 9, title: '1 Year Ago', profiles: generateProfiles(13) },
-])
-
-// Visible orbits to show on the screen (7 at a time)
-const visibleOrbits = computed(() => {
-    const start = currentOrbitIndex.value
-    return allOrbits.value.slice(start, start + 7)
-})
-
-// Handle scrolling to navigate through orbits
-const handleScroll = (event) => {
-    if (event.deltaY > 0 && currentOrbitIndex.value < allOrbits.value.length - 7) {
-        currentOrbitIndex.value++
-    } else if (event.deltaY < 0 && currentOrbitIndex.value > 0) {
-        currentOrbitIndex.value--
+<script>
+export default {
+    data() {
+        return {
+            zoomLevel: 0.5,
+            orbits: this.generateOrbits(20),  // Generate more orbits (20 in this example)
+            activeAvatars: {}, // Store the active avatars for each orbit and avatar
+        };
+    },
+    computed: {
+        visibleOrbits() {
+            const orbitRange = 7;
+            const radiusThreshold = 50; // Distance at which orbits will become visible
+            return this.orbits.filter((orbit, index) => {
+                const effectiveZoom = this.zoomLevel * orbit.radius;
+                return index < orbitRange || effectiveZoom <= radiusThreshold * (orbitRange + 1);
+            });
+        }
+    },
+    methods: {
+        generateOrbits(count) {
+            const baseRadius = 50;
+            const radiusIncrement = 40;
+            return Array.from({ length: count }, (_, index) => ({
+                radius: baseRadius + index * radiusIncrement,
+                avatars: this.generateAvatars(10, index + 1, baseRadius + index * radiusIncrement),
+            }));
+        },
+        generateAvatars(count, orbitNumber, orbitRadius) {
+            return Array.from({ length: count }, (_, index) => ({
+                name: `Avatar ${orbitNumber}-${index + 1}`,
+                size: 30,
+                angle: (Math.PI * index) / (count - 1),
+                imageUrl: `https://picsum.photos/seed/${orbitNumber}-${index}/30`,
+                orbit: orbitNumber,
+            }));
+        },
+        isAvatarVisible(avatar) {
+            return avatar.angle >= 0 && avatar.angle <= Math.PI;
+        },
+        handleZoom(event) {
+            if (event.deltaY < 0) {
+                this.zoomIn();
+            } else {
+                this.zoomOut();
+            }
+        },
+        zoomIn() {
+            if (this.zoomLevel < 2) {
+                this.zoomLevel += 0.1;
+            }
+        },
+        zoomOut() {
+            if (this.zoomLevel > 0.2) {
+                this.zoomLevel -= 0.1;
+            }
+        },
+        showAvatarInfo(avatar, event, orbitIndex, avatarIndex) {
+            this.$set(this.activeAvatars, `${orbitIndex}-${avatarIndex}`, true);
+        },
+        hideAvatarInfo(orbitIndex, avatarIndex) {
+            this.$delete(this.activeAvatars, `${orbitIndex}-${avatarIndex}`);
+        },
+        isAvatarActive(orbitIndex, avatarIndex) {
+            return !!this.activeAvatars[`${orbitIndex}-${avatarIndex}`];
+        }
     }
-}
-
-// Get the size and position of each orbit
-const getOrbitStyle = (index) => {
-    const size = (index + 1) * 320 // Orbit size grows with index
-    return {
-        width: `${size}px`,
-        height: `${size / 2}px`, // Half circle
-        bottom: `-${size / 4}px`,
-    }
-}
-
-// Title position on the outermost orbit
-const getTitlePosition = (index) => {
-    const size = (index + 1) * 320
-    return {
-        top: `-${size / 2 + 20}px`, // Move title above the outer edge of the orbit
-        left: '50%',
-        transform: 'translateX(-50%)',
-    }
-}
-
-// Function to position profile images
-const positionProfileImages = () => {
-    if (!profilesContainer.value) return
-
-    // Clear existing profile images
-    profilesContainer.value.innerHTML = ''
-
-    visibleOrbits.value.forEach((orbit, orbitIndex) => {
-        const orbitElement = orbitRefs.value[orbitIndex]
-        if (!orbitElement) return
-
-        const orbitRect = orbitElement.getBoundingClientRect()
-        const centerX = orbitRect.left + orbitRect.width / 2
-        const centerY = orbitRect.top + orbitRect.height
-
-        orbit.profiles.forEach((profile, profileIndex) => {
-            const angle = (profileIndex / (orbit.profiles.length - 1)) * Math.PI
-            const radius = orbitRect.width / 2
-
-            const x = centerX + Math.cos(angle) * radius
-            const y = centerY - Math.sin(angle) * radius
-
-            const img = document.createElement('img')
-            img.src = profile.image
-            img.alt = 'Profile'
-            img.className = 'absolute w-8 h-8 rounded-full object-cover'
-            img.style.left = `${x}px`
-            img.style.top = `${y}px`
-            img.style.transform = 'translate(-50%, -50%)'
-
-            profilesContainer.value.appendChild(img)
-        })
-    })
-}
-
-// Watch for changes in visibleOrbits and reposition images
-watch(visibleOrbits, () => {
-    nextTick(positionProfileImages)
-})
-
-onMounted(() => {
-    nextTick(positionProfileImages)
-    window.addEventListener('resize', positionProfileImages)
-})
-
-// Clean up event listener on component unmount
-onUnmounted(() => {
-    window.removeEventListener('resize', positionProfileImages)
-})
+};
 </script>
-
-<style scoped>
-.orbit {
-    position: relative;
-    overflow: hidden;
-}
-</style>
